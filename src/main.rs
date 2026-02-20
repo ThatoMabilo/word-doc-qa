@@ -53,7 +53,7 @@ fn main() {
             let model_path = format!("{}/model_final", model_dir);
             let vocab_path = format!("{}/vocab.json", model_dir);
 
-            if std::path::Path::new(&model_path).exists() {
+            if std::path::Path::new(&format!("{}.mpk", model_path)).exists() {
                 let device = NdArrayDevice::Cpu;
                 let engine =
                     QAInferenceEngine::<MyBackend>::load(&model_path, &vocab_path, 128, device);
