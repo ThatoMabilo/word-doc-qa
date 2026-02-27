@@ -8,7 +8,7 @@ mod model;
 mod training;
 
 use crate::data::load_documents;
-use crate::inference::{keyword_search, QAInferenceEngine};
+use crate::inference::{keyword_search, count_occurrences, QAInferenceEngine};
 use crate::training::{train, TrainingConfig};
 use burn::backend::ndarray::NdArrayDevice;
 use burn::backend::{Autodiff, NdArray};
@@ -93,6 +93,14 @@ fn main() {
             println!("Total characters extracted: {}", text.len());
         }
 
+        "count" => {
+    let docs_folder = args.get(2).map(|s| s.as_str()).unwrap_or("documents");
+    let keyword  = args.get(3).map(|s| s.as_str()).unwrap_or("Higher Degrees Committee");
+    let year     = args.get(4).map(|s| s.as_str());
+    let doc_text = load_documents(docs_folder);
+    let result   = count_occurrences(keyword, &doc_text, year);
+    println!("{}", result);
+}
         _ => print_help(),
     }
 }

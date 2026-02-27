@@ -105,8 +105,15 @@ pub fn keyword_search(question: &str, document_text: &str) -> String {
     // Extract meaningful keywords, skip common question words
     let stop_words = vec![
         "when", "what", "how", "many", "did", "the", "is", "are", "was", "will", "does", "has",
+        "their", "hold", "times",
     ];
-    let cleaned_question: String = question_lower
+    // Expand common abbreviations
+
+    let expanded_question = question_lower
+        .replace("hdc", "higher degrees committee")
+        .replace("emc", "executive management committee")
+        .replace("src", "student representative council");
+    let cleaned_question: String = expanded_question
         .chars()
         .map(|c| {
             if c.is_alphabetic() || c.is_whitespace() {
@@ -155,4 +162,34 @@ pub fn keyword_search(question: &str, document_text: &str) -> String {
     } else {
         "No relevant information found.".to_string()
     }
+}
+
+pub fn count_occurrences(keyword: &str, document_text: &str, year: Option<&str>) -> String {
+    let keyword_lower = keyword.to_lowercase();
+    let mut count = 0;
+    let mut current_year = String::new();
+
+    for line in document_text.lines() {
+        // Track which year section we're in
+        if line.contains("2024") || line.contains("2025") || line.contains("2026") {
+            if line.len() < 20 {
+                // short lines are likely month/year headers
+                current_year = line.to_string();
+            }
+        }
+        // Count matches filtered by year if specified
+        let year_match = match year {
+            Some(y) => current_year.contains(y),
+            None => true,
+        };
+        if year_match && line.to_lowercase().contains(&keyword_lower) {
+            count += 1;
+        }
+    }
+    format!(
+        "'{}' appears {} time(s) in the documents{}",
+        keyword,
+        count,
+        year.map(|y| format!(" for year {}", y)).unwrap_or_default()
+    )
 }
