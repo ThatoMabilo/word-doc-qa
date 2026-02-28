@@ -116,7 +116,7 @@ pub fn keyword_search(question: &str, document_text: &str) -> String {
     let cleaned_question: String = expanded_question
         .chars()
         .map(|c| {
-            if c.is_alphabetic() || c.is_whitespace() {
+            if c.is_alphanumeric() || c.is_whitespace() {
                 c
             } else {
                 ' '
