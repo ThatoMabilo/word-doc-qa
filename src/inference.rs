@@ -101,14 +101,10 @@ impl<B: Backend> QAInferenceEngine<B> {
 
 pub fn keyword_search(question: &str, document_text: &str) -> String {
     let question_lower = question.to_lowercase();
-
-    // Extract meaningful keywords, skip common question words
     let stop_words = vec![
         "when", "what", "how", "many", "did", "the", "is", "are", "was", "will", "does", "has",
-        "their", "hold", "times",
+        "their", "hold", "times", "meet",
     ];
-    // Expand common abbreviations
-
     let expanded_question = question_lower
         .replace("hdc", "higher degrees committee")
         .replace("emc", "executive management committee")
@@ -123,41 +119,196 @@ pub fn keyword_search(question: &str, document_text: &str) -> String {
             }
         })
         .collect();
-    let keywords: Vec<&str> = cleaned_question
-        .split_whitespace()
-        .filter(|w| w.len() > 2 && !stop_words.contains(w))
+    let words: Vec<&str> = cleaned_question.split_whitespace().collect();
+    let keywords: Vec<&str> = words
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| {
+            let is_term_number = *i > 0 && words[*i - 1] == "term" && (w.len() == 1);
+            let is_year = w.len() == 4 && w.chars().all(|c| c.is_numeric());
+            (w.len() > 2 || is_term_number || is_year) && !stop_words.contains(*w)
+        })
+        .map(|(_, w)| *w)
         .collect();
 
     println!("Searching for keywords: {:?}", keywords);
 
+    // Check if question contains a specific year
+    let year_filter: Option<&str> = ["2024", "2025", "2026"]
+        .iter()
+        .find(|&&y| cleaned_question.contains(y))
+        .copied();
+
     let mut best_line = String::new();
     let mut best_score = 0usize;
+    let mut current_year = String::new();
 
     for line in document_text.lines() {
+        // Track current year section
+        if line.len() < 20
+            && (line.contains("2024") || line.contains("2025") || line.contains("2026"))
+        {
+            current_year = line.to_string();
+        }
+
+        // Skip lines that don't match year filter
+        if let Some(y) = year_filter {
+            if !current_year.contains(y) {
+                continue;
+            }
+        }
+
         let line_lower = line.to_lowercase();
+        // Score based on non-year keywords only
         let score = keywords
             .iter()
+            .filter(|&&kw| kw != "2024" && kw != "2025" && kw != "2026")
             .filter(|&&kw| line_lower.contains(kw))
             .count();
-        if score > best_score && line.trim().len() > 5 {
-            best_score = score;
+
+        // Boost score for lines that also contain the year keyword
+        // but only for content lines, not month headers
+        let year_boost = if let Some(y) = year_filter {
+            if line_lower.contains(y) && line.trim().len() > 15 {
+                1
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        // Bonus for exact term number match
+        // Bonus for exact term number match — only when "term" is in the question
+        let term_bonus = if keywords.contains(&"term") {
+            if keywords.contains(&"2") && line_lower.contains("term 2") {
+                2
+            } else if keywords.contains(&"3") && line_lower.contains("term 3") {
+                2
+            } else if keywords.contains(&"4") && line_lower.contains("term 4") {
+                2
+            } else if keywords.contains(&"1") && line_lower.contains("term 1") {
+                1
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        // Penalise lines that contain term patterns when question is not about terms
+        let term_penalty = if !keywords.contains(&"term") && line_lower.contains("start of term") {
+            2
+        } else {
+            0
+        };
+
+        let final_score = score + year_boost + term_bonus;
+        if term_penalty < final_score
+            && (final_score - term_penalty) > best_score
+            && line.trim().len() > 5
+        {
+            best_score = final_score - term_penalty;
             best_line = line.trim().to_string();
         }
     }
 
     if best_score > 0 {
-        // Clean up the answer - take only the most relevant part
-        let parts: Vec<&str> = best_line.split('|').collect();
-        let relevant = parts
+        // Patterns where we want the full line (no date prefix needed)
+        let full_line_patterns = ["SUMMER GRADUATION"];
+        for pattern in &full_line_patterns {
+            if best_line.to_uppercase().contains(pattern) {
+                return best_line.trim().to_string();
+            }
+        }
+
+        // Check for specific term number matches
+        let term_keywords: Vec<&str> = keywords
             .iter()
-            .filter(|p| keywords.iter().any(|&kw| p.to_lowercase().contains(kw)))
-            .map(|p| p.trim())
-            .collect::<Vec<_>>()
-            .join(" | ");
-        if relevant.is_empty() {
+            .filter(|&&k| k == "1" || k == "2" || k == "3" || k == "4")
+            .copied()
+            .collect();
+
+        if !term_keywords.is_empty() {
+            let term_num = term_keywords[0];
+            let term_pattern = format!("START OF TERM {}", term_num);
+            if let Some(pos) = best_line.to_uppercase().find(&term_pattern.to_uppercase()) {
+                let start = if pos > 30 { pos - 30 } else { 0 };
+                let raw_prefix = best_line[start..pos].trim().to_string();
+                let prefix = raw_prefix
+                    .split_whitespace()
+                    .last()
+                    .unwrap_or("")
+                    .to_string();
+                let pattern_text =
+                    &best_line[pos..pos + term_pattern.len().min(best_line.len() - pos)];
+                let result = if prefix.len() <= 2 && prefix.chars().all(|c| c.is_numeric()) {
+                    format!("{} {}", prefix, pattern_text.trim())
+                        .trim()
+                        .to_string()
+                } else {
+                    pattern_text.trim().to_string()
+                };
+                return result;
+            }
+        }
+
+        // General patterns with date prefix extraction
+        // General patterns with date prefix extraction
+        // Only apply term patterns if question is about terms
+        let patterns: Vec<&str> = if keywords.contains(&"term") {
+            vec![
+                "START OF TERM",
+                "END OF TERM",
+                "HUMAN RIGHTS DAY",
+                "CHRISTMAS DAY",
+                "DAY OF RECONCILIATION",
+            ]
+        } else {
+            vec!["HUMAN RIGHTS DAY", "CHRISTMAS DAY", "DAY OF RECONCILIATION"]
+        };
+
+        let upper = best_line.to_uppercase();
+        for pattern in &patterns {
+            if let Some(pos) = upper.find(pattern) {
+                let start = if pos > 30 { pos - 30 } else { 0 };
+                let raw_prefix = best_line[start..pos].trim().to_string();
+                let prefix = raw_prefix
+                    .split_whitespace()
+                    .last()
+                    .unwrap_or("")
+                    .to_string();
+                let pattern_text = &best_line[pos..pos + pattern.len().min(best_line.len() - pos)];
+                let result = if prefix.len() <= 2 && prefix.chars().all(|c| c.is_numeric()) {
+                    format!("{} {}", prefix, pattern_text.trim())
+                        .trim()
+                        .to_string()
+                } else {
+                    pattern_text.trim().to_string()
+                };
+                return result;
+            }
+        }
+
+        // fallback
+        // fallback - find the part of the line most relevant to the primary keyword
+        let primary_keyword = keywords
+            .iter()
+            .filter(|&&kw| kw != "2024" && kw != "2025" && kw != "2026")
+            .next()
+            .unwrap_or(&"");
+
+        let parts: Vec<&str> = best_line.split('|').collect();
+        let best_part = parts
+            .iter()
+            .find(|p| p.to_lowercase().contains(primary_keyword))
+            .unwrap_or(&parts[0]);
+
+        let clean = best_part.trim().to_string();
+        if clean.is_empty() {
             best_line
         } else {
-            relevant
+            clean
         }
     } else {
         "No relevant information found.".to_string()

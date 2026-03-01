@@ -82,9 +82,9 @@ pub fn load_documents(folder: &str) -> String {
     // Append known text box content not extractable by docx-rs
     // These entries are stored as floating drawing objects in the .docx files
     // and cannot be reached through standard table/paragraph traversal
-    all_text.push_str("\nSUMMER GRADUATION December 11-13 2024\n");
-    all_text.push_str("\nSUMMER GRADUATION December 10-12 2025\n");
-    all_text.push_str("\nSUMMER GRADUATION December 10 2026\n");
+    all_text.push_str("\nJANUARY 2024\nSUMMER GRADUATION December 11-13 2024\n");
+    all_text.push_str("\nJANUARY 2025\nSUMMER GRADUATION December 10-12 2025\n");
+    all_text.push_str("\nJANUARY 2026\nSUMMER GRADUATION December 10 2026\n");
 
     all_text
 }
